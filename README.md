@@ -1,62 +1,72 @@
 # allocation-gym-2.0
 
-Thin analytics client. Computes cohort analytics — earnings calendars, EPS
-estimate-vs-actual, surprise statistics — and emits a flat record payload for
-a storage service to persist.
-
-Deliberately holds **no storage of its own**. The counterpart writer client and
-SQLite storage interface live in
+Read-only client over the EPS dataset. Loads the JSON db that
 [`allocation-engine-2.0`](https://github.com/IamJasonBian/allocation-engine-2.0)
-(`app/earnings_store.py`, `app/earnings_writer.py`). This package computes; that
-one persists. The contract between them is the JSON payload documented in
-`allocation_gym2/client.py` — no shared database handle, no import across repos.
+writes, answers questions about it, and renders it.
+
+**This package never writes.** The engine owns the write path — it fetches EPS
+values and exports the dataset (`app/earnings_writer.py`, `app/earnings_store.py`).
+This one reads. No database handle is shared and neither repo imports the other;
+the contract is the JSON file.
 
 ## Install
 
 ```bash
-pip install -e ".[data,dev]"
+pip install -e ".[dev]"
 ```
 
-`yfinance` is an optional `data` extra, lazily imported, so the pure analytics
-(`surprise`) can be imported and tested without a network stack.
+No data dependencies — nothing here fetches.
 
 ## Usage
 
 ```bash
-# Full payload — cohort + calendar + EPS history + surprise stats
-python -m allocation_gym2 collect --out payload.json
+export EPS_DATASET=../allocation-engine-2.0/data/eps.json
 
-# Just the surprise table, to stdout
-python -m allocation_gym2 surprise
+python -m allocation_gym2 tickers
+python -m allocation_gym2 historical --ticker AVGO
+python -m allocation_gym2 upcoming
+python -m allocation_gym2 next
 
-# Narrow to one subsector
-python -m allocation_gym2 collect --subsector silicon --out silicon.json
+# self-contained page — open it straight off disk, no server
+python -m allocation_gym2 grid --out eps-grid.html
 ```
 
-Then hand the payload to the engine's writer:
+```python
+from allocation_gym2 import records, historical, next_report
 
-```bash
-python scripts/load_earnings.py payload.json   # in allocation-engine-2.0
+rows = records()                      # $EPS_DATASET, or pass a path
+historical(rows, "NVDA")              # reported quarters, oldest first
+next_report(rows)["AVGO"]             # soonest upcoming quarter + consensus
 ```
 
-## Why surprise stats are median-based
+## Dataset shape
 
-`surprise_pct` is a ratio against consensus, so it detonates when consensus is
-near zero — a $0.01 estimate printing $0.02 reads as +100%, and Cloudflare's
-best quarter reads **+1829%**. Averaging those produces a number driven entirely
-by the smallest denominators.
+```json
+{
+  "generated": "2026-08-13",
+  "tickers": ["AVGO", "NVDA"],
+  "eps": [
+    {"ticker": "NVDA", "earnings_date": "2026-05-20",
+     "eps_estimate": 1.77, "eps_actual": 1.87, "status": "reported"},
+    {"ticker": "NVDA", "earnings_date": "2026-08-26",
+     "eps_estimate": 2.08, "eps_actual": null, "status": "upcoming"}
+  ]
+}
+```
 
-`surprise_stats()` therefore reports median surprise %, median dollar delta, and
-a raw beat rate, and flags `pct_unstable` for any ticker whose typical consensus
-is under $0.25 — below that, a one-cent miss moves the percentage by double
-digits and the % column should be read as noise regardless of the median.
+`status` is `reported` (has an actual) or `upcoming` (consensus only) — so
+current and historical live in the same table.
+
+Values are split-adjusted at the source, so older quarters won't match headlines
+from the time.
 
 ## Layout
 
 | Module | Holds |
 |---|---|
-| `cohort.py` | cohort membership, subsector, market cap — reference data |
-| `calendar.py` | next scheduled report per ticker, with source provenance |
-| `eps.py` | EPS estimate/actual fetch (yfinance) |
-| `surprise.py` | pure surprise math — no I/O, fully unit-tested |
-| `client.py` | assembles the payload; the repo's only public entry point |
+| `jsondb.py` | load + validate the dataset |
+| `reader.py` | queries — by ticker, historical, upcoming, next, latest |
+| `grid.py` | render the dataset as a self-contained HTML grid |
+
+The grid inlines its data rather than fetching it, so it opens under `file://`.
+Rendering lives here rather than in the engine — a plot is a read.
