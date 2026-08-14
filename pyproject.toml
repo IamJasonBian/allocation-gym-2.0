@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "allocation-gym-2.0"
+version = "0.1.0"
+description = "Read-only client over the EPS dataset"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+# No data deps: this package reads a dataset, it never fetches one.
+dev = ["pytest>=7.0", "ruff>=0.6.0"]
+
+[project.scripts]
+allocation-gym-2 = "allocation_gym2.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["allocation_gym2*"]
+exclude = ["tests*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM", "C4"]
+# E501 handled by the formatter; N803/N806 fight standard math notation.
+ignore = ["E501", "N803", "N806"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["allocation_gym2"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
