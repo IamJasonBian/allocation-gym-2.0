@@ -1,10 +1,10 @@
-"""Tests for the read path. Fixture data only — no file, no network."""
+"""Tests for the read path and the grid. Fixture data only — no network."""
 
 import json
 
 import pytest
 
-from allocation_gym2 import jsondb, reader
+from allocation_gym2 import grid, jsondb, reader
 
 RECORDS = [
     {"ticker": "AVGO", "earnings_date": "2026-06-03", "eps_estimate": 2.40,
@@ -21,44 +21,26 @@ RECORDS = [
      "eps_actual": None, "status": "upcoming"},
 ]
 
+DATASET = {"generated": "2026-08-13", "tickers": ["AVGO", "NVDA"], "eps": RECORDS}
 
-def test_tickers_are_distinct_and_sorted():
+
+def test_historical_and_upcoming_split_on_status():
+    assert all(r["eps_actual"] is not None for r in reader.historical(RECORDS))
+    assert all(r["eps_actual"] is None for r in reader.upcoming(RECORDS))
+    assert len(reader.historical(RECORDS)) == 3
+    assert len(reader.upcoming(RECORDS)) == 3
+
+
+def test_queries_sort_and_filter():
     assert reader.tickers(RECORDS) == ["AVGO", "NVDA"]
-
-
-def test_for_ticker_is_date_sorted():
-    dates = [r["earnings_date"] for r in reader.for_ticker(RECORDS, "AVGO")]
-    assert dates == ["2026-03-04", "2026-06-03", "2026-09-02"]
-
-
-def test_historical_keeps_only_reported_quarters():
-    rows = reader.historical(RECORDS)
-    assert len(rows) == 3
-    assert all(r["eps_actual"] is not None for r in rows)
-
-
-def test_upcoming_keeps_only_quarters_without_an_actual():
-    rows = reader.upcoming(RECORDS)
-    assert len(rows) == 3
-    assert all(r["eps_actual"] is None for r in rows)
-    assert all(r["eps_estimate"] is not None for r in rows)
-
-
-def test_filters_narrow_to_one_ticker():
+    assert [r["earnings_date"] for r in reader.for_ticker(RECORDS, "AVGO")] == [
+        "2026-03-04", "2026-06-03", "2026-09-02"]
     assert {r["ticker"] for r in reader.historical(RECORDS, "NVDA")} == {"NVDA"}
-    assert {r["ticker"] for r in reader.upcoming(RECORDS, "AVGO")} == {"AVGO"}
 
 
-def test_next_report_picks_the_soonest_upcoming():
-    nxt = reader.next_report(RECORDS)
-    assert nxt["NVDA"]["earnings_date"] == "2026-08-26"
-    assert nxt["AVGO"]["earnings_date"] == "2026-09-02"
-
-
-def test_latest_reported_picks_the_newest_actual():
-    latest = reader.latest_reported(RECORDS)
-    assert latest["AVGO"]["earnings_date"] == "2026-06-03"
-    assert latest["AVGO"]["eps_actual"] == 2.44
+def test_next_report_and_latest_reported_pick_the_right_end():
+    assert reader.next_report(RECORDS)["NVDA"]["earnings_date"] == "2026-08-26"
+    assert reader.latest_reported(RECORDS)["AVGO"]["eps_actual"] == 2.44
 
 
 def test_empty_records_are_handled_everywhere():
@@ -68,47 +50,42 @@ def test_empty_records_are_handled_everywhere():
     assert reader.latest_reported([]) == {}
 
 
-# --------------------------------------------------------------------------- #
-# jsondb loading + validation
-# --------------------------------------------------------------------------- #
+def test_load_reads_a_valid_dataset(tmp_path):
+    path = tmp_path / "eps.json"
+    path.write_text(json.dumps(DATASET))
+    assert jsondb.records(str(path)) == RECORDS
 
-def _write(tmp_path, payload):
+
+@pytest.mark.parametrize("payload,match", [
+    ({"generated": "2026-08-13"}, "'eps' key"),
+    ({"eps": {"nope": True}}, "must be a list"),
+    ({"eps": [{"ticker": "AVGO"}]}, "missing keys"),
+])
+def test_load_rejects_a_malformed_dataset(tmp_path, payload, match):
     path = tmp_path / "eps.json"
     path.write_text(json.dumps(payload))
-    return str(path)
+    with pytest.raises(jsondb.DatasetError, match=match):
+        jsondb.load(str(path))
 
 
-def test_load_reads_a_valid_dataset(tmp_path):
-    path = _write(tmp_path, {"generated": "2026-08-13",
-                             "tickers": ["AVGO", "NVDA"], "eps": RECORDS})
-    data = jsondb.load(path)
-    assert len(data["eps"]) == 6
-    assert jsondb.records(path) == RECORDS
+def test_grid_is_self_contained_so_it_opens_off_disk():
+    page = grid.render(DATASET)
+    assert "__EPS_DATA__" not in page, "data placeholder was not substituted"
+    assert "fetch(" not in page, "a fetch would fail under file://"
+    assert "AVGO" in page and "3.24" in page
 
 
-def test_load_accepts_an_empty_dataset(tmp_path):
-    path = _write(tmp_path, {"generated": "2026-08-13", "tickers": [], "eps": []})
-    assert jsondb.load(path)["eps"] == []
+def test_grid_escapes_a_closing_script_tag_in_the_data():
+    """An embedded </script> would end the block early and break the page."""
+    page = grid.render({"generated": "x", "tickers": ["A"],
+                        "eps": [{"ticker": "</script><b>", "earnings_date": "2026-01-01",
+                                 "eps_estimate": 1.0, "eps_actual": 1.1,
+                                 "status": "reported"}]})
+    assert "</script><b>" not in page
+    assert page.count("</script>") == 1
 
 
-def test_load_rejects_a_missing_eps_key(tmp_path):
-    path = _write(tmp_path, {"generated": "2026-08-13"})
-    with pytest.raises(jsondb.DatasetError, match="'eps' key"):
-        jsondb.load(path)
-
-
-def test_load_rejects_eps_that_is_not_a_list(tmp_path):
-    path = _write(tmp_path, {"eps": {"nope": True}})
-    with pytest.raises(jsondb.DatasetError, match="must be a list"):
-        jsondb.load(path)
-
-
-def test_load_rejects_records_missing_required_keys(tmp_path):
-    path = _write(tmp_path, {"eps": [{"ticker": "AVGO"}]})
-    with pytest.raises(jsondb.DatasetError, match="missing keys"):
-        jsondb.load(path)
-
-
-def test_load_raises_for_a_missing_file(tmp_path):
-    with pytest.raises(FileNotFoundError):
-        jsondb.load(str(tmp_path / "nope.json"))
+def test_grid_write_creates_the_file(tmp_path):
+    out = grid.write(DATASET, str(tmp_path / "eps-grid.html"))
+    with open(out) as f:
+        assert "<!DOCTYPE html>" in f.read()

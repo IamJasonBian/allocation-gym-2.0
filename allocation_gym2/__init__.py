@@ -1,5 +1,6 @@
 """allocation-gym-2.0 — read-only client over the EPS dataset."""
 
+from allocation_gym2.grid import render, write
 from allocation_gym2.jsondb import DatasetError, load, records
 from allocation_gym2.reader import (
     for_ticker,
@@ -20,6 +21,8 @@ __all__ = [
     "load",
     "next_report",
     "records",
+    "render",
     "tickers",
     "upcoming",
+    "write",
 ]

@@ -2,7 +2,7 @@
 
 Read-only client over the EPS dataset. Loads the JSON db that
 [`allocation-engine-2.0`](https://github.com/IamJasonBian/allocation-engine-2.0)
-writes, and answers questions about it.
+writes, answers questions about it, and renders it.
 
 **This package never writes.** The engine owns the write path — it fetches EPS
 values and exports the dataset (`app/earnings_writer.py`, `app/earnings_store.py`).
@@ -26,6 +26,9 @@ python -m allocation_gym2 tickers
 python -m allocation_gym2 historical --ticker AVGO
 python -m allocation_gym2 upcoming
 python -m allocation_gym2 next
+
+# self-contained page — open it straight off disk, no server
+python -m allocation_gym2 grid --out eps-grid.html
 ```
 
 ```python
@@ -63,3 +66,7 @@ from the time.
 |---|---|
 | `jsondb.py` | load + validate the dataset |
 | `reader.py` | queries — by ticker, historical, upcoming, next, latest |
+| `grid.py` | render the dataset as a self-contained HTML grid |
+
+The grid inlines its data rather than fetching it, so it opens under `file://`.
+Rendering lives here rather than in the engine — a plot is a read.
