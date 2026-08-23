@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>allocation-gym — approach &amp; PR</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/aaaakshat/cm-web-fonts@master/fonts.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '$', right: '$', display: false}
+    ]
+  });"></script>
+<style>
+  :root {
+    --ink: #111;
+    --muted: #444;
+    --kw: #1a5c2e;
+    --line: #bbb;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 48px 56px 72px;
+    max-width: 980px;
+    color: var(--ink);
+    background: #fff;
+    font-family: "Computer Modern Serif", "CMU Serif", "Latin Modern Roman", serif;
+    font-size: 16.5px;
+    line-height: 1.5;
+  }
+  h1 {
+    font-size: 2.05rem;
+    font-weight: 700;
+    margin: 0 0 0.3em;
+  }
+  h2 {
+    font-size: 1.4rem;
+    font-weight: 700;
+    margin: 1.85em 0 0.5em;
+  }
+  h3 {
+    font-size: 1.12rem;
+    font-weight: 700;
+    margin: 1.35em 0 0.4em;
+  }
+  p, li { max-width: 68ch; }
+  .meta { color: var(--muted); font-size: 0.95rem; margin-bottom: 1.5em; }
+  a { color: #0b3d91; }
+  code, pre {
+    font-family: "Computer Modern Typewriter", "CMU Typewriter Text", monospace;
+  }
+  pre {
+    background: transparent;
+    border: none;
+    padding: 0;
+    margin: 0.55em 0 1.1em;
+    font-size: 0.92rem;
+    line-height: 1.4;
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .kw { color: var(--kw); font-weight: 700; }
+  .type { color: var(--ink); }
+
+  table.vol {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: "Computer Modern Typewriter", "CMU Typewriter Text", monospace;
+    font-size: 0.76rem;
+    margin: 0.75em 0 0.35em;
+  }
+  table.vol th {
+    text-align: right;
+    font-weight: 700;
+    color: var(--muted);
+    border-bottom: 1px solid var(--line);
+    padding: 0.35em 0.5em;
+    white-space: nowrap;
+  }
+  table.vol th:first-child,
+  table.vol td:first-child { text-align: left; }
+  table.vol td {
+    text-align: right;
+    padding: 0.28em 0.5em;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  table.vol td.blank { color: #ccc; }
+
+  .caption {
+    font-style: italic;
+    color: var(--muted);
+    font-size: 0.9rem;
+    margin: 0 0 1.4em;
+  }
+
+  /* Metric definitions — LaTeX body */
+  dl.metrics { margin: 0.4em 0 1.2em; max-width: 72ch; }
+  dl.metrics dt {
+    font-weight: 700;
+    margin-top: 1.05em;
+  }
+  dl.metrics dd {
+    margin: 0.25em 0 0 0;
+  }
+  dl.metrics .note {
+    color: var(--muted);
+    font-size: 0.95rem;
+    margin-top: 0.2em;
+  }
+  .katex { font-size: 1.05em; }
+  .katex-display { margin: 0.45em 0 0.55em; overflow-x: auto; overflow-y: hidden; }
+
+  hr {
+    border: none;
+    border-top: 1px solid var(--line);
+    margin: 2em 0;
+  }
+</style>
+</head>
+<body>
+
+<h1>allocation-gym — approach &amp; PR</h1>
+<p class="meta">
+  Read side of the EPS / risk contract.
+  Gym PR <a href="https://github.com/IamJasonBian/allocation-gym-2.0/pull/1">#1</a>
+  · Engine write path <a href="https://github.com/IamJasonBian/allocation-engine-2.0/pull/113">#113</a>
+  · Vol surface <a href="https://github.com/IamJasonBian/allocation-engine-2.0/pull/117">#117</a>
+</p>
+
+<h2>Core Types</h2>
+
+<p>
+  As defined in the repos — auth box value objects
+  (<code>auth-service/models.py</code>), endpoint return dicts, broker schemas
+  (<code>app/schemas.py</code>), and the live snapshot envelope
+  (<code>app/api/snapshot.py</code>).
+</p>
+
+<h3>Auth box — <code>models.py</code></h3>
+<pre><span class="kw">@dataclass</span>(frozen=True, slots=True)
+<span class="kw">class</span> <span class="type">Credentials</span>:
+    username: str
+    password: str
+    totp_secret: str | None = None
+    device_token: str | None = None
+
+<span class="kw">@dataclass</span>(frozen=True, slots=True)
+<span class="kw">class</span> <span class="type">Session</span>:
+    access_token: str
+    refresh_token: str
+    token_type: str
+    expires_at: float
+    device_token: str
+    account_url: str = ""
+    account_number: str = ""
+
+    <span class="kw">def</span> headers(self) -&gt; dict: ...
+    <span class="kw">def</span> with_account(self, account_url: str, account_number: str) -&gt; Session: ...
+
+<span class="kw">@dataclass</span>(frozen=True, slots=True)
+<span class="kw">class</span> <span class="type">AuthResult</span>:
+    status: str
+    session: Session | None = None
+    approval_id: str | None = None
+    error_code: str | None = None
+    detail: str = ""</pre>
+
+<p class="note" style="color:var(--muted);font-size:0.95rem;margin-top:-0.4em">
+  <code>status</code> ∈ {OK, NEEDS_APPROVAL, MFA_REQUIRED, TIMEOUT, ERROR}.
+</p>
+
+<h3>Auth box — endpoint shapes</h3>
+<pre><span style="color:var(--muted)"># session.status  →  GET /auth/status</span>
+{
+    "profile": str,
+    "authenticated": bool,
+    "token_unexpired": bool,
+    "token_verified": bool | None,
+    "verify_interval": int,
+    "expires_at": float | None,
+    "account_number": str | None,
+}
+
+<span style="color:var(--muted)"># _handle_token  →  GET /token</span>
+{
+    "token": str,
+    "token_type": str,
+    "expires_at": float,
+    "device_token": str,
+    "account_number": str,
+}
+
+<span style="color:var(--muted)"># GET /orders/trailing_stop</span>
+{"count": int, "orders": list[dict]}
+
+<span style="color:var(--muted)"># build_trailing_stop_payload  →  POST place / replace body["payload"]</span>
+{
+    "account": str,
+    "instrument": str,
+    "symbol": str,
+    "type": "market",
+    "time_in_force": "gtc",
+    "trigger": "stop",
+    "side": str,
+    "quantity": str,
+    "trailing_peg": {"type": "percentage", "percentage": str},
+    "ref_id": str,
+    <span style="color:var(--muted)"># "stop_price": str   optional</span>
+}</pre>
+
+<h3>Broker schemas — <code>app/schemas.py</code></h3>
+<pre><span class="kw">class</span> <span class="type">PositionSchema</span>(BaseModel):
+    symbol: str
+    qty: float
+    side: str
+    market_value: float
+    avg_entry: float
+    unrealized_pl: float
+    unrealized_pl_pct: float
+
+<span class="kw">class</span> <span class="type">OrderSchema</span>(BaseModel):
+    id: str
+    symbol: str
+    side: str
+    qty: float
+    type: str
+    limit_price: float | None = None
+    stop_price: float | None = None
+    status: str
+
+<span class="kw">class</span> <span class="type">AccountSchema</span>(BaseModel):
+    equity: float
+    cash: float
+    buying_power: float
+    portfolio_value: float</pre>
+
+<h3>Snapshot — <code>GET /api/snapshot</code></h3>
+<pre>{
+    "timestamp": str,
+    "order_book": [
+        {
+            "order_id": str,
+            "symbol": str,
+            "side": str,
+            "order_type": str,
+            "trigger": "immediate",
+            "state": str,
+            "quantity": float,
+            "limit_price": float,
+            "stop_price": float | None,
+            "created_at": str,
+            "updated_at": str,
+        },
+        ...
+    ],
+    "portfolio": {
+        "cash": {
+            "cash": float,
+            "cash_available_for_withdrawal": float,
+            "buying_power": float,
+            "tradeable_cash": float,
+        },
+        "equity": float,
+        "market_value": float,
+        "positions": [
+            {
+                "symbol": str,
+                "name": str,
+                "quantity": float,
+                "avg_buy_price": float,
+                "current_price": float,
+                "equity": float,
+                "profit_loss": float,
+                "profit_loss_pct": float,
+                "percent_change": None,
+                "percentage": None,
+                "asset_type": str,
+            },
+            ...
+        ],
+        "open_orders": [...],
+        "open_option_orders": [...],
+        "options": [...],
+    },
+    "market_data": None,
+}</pre>
+
+<p>
+  Broker <code>qty</code> / <code>avg_entry</code> map into snapshot
+  <code>quantity</code> / <code>avg_buy_price</code>. Vol below uses snapshot
+  <code>quantity</code> as $q$.
+</p>
+
+<h2>Vol</h2>
+<h3>Book slice</h3>
+<p>
+  Per-symbol vol from <code>VolSlicer</code> / <code>VolSlice</code>, over daily
+  closes. Let $c_t$ be the close and $q$ the signed position.
+</p>
+
+<table class="vol">
+  <thead>
+    <tr>
+      <th>SYMBOL</th>
+      <th>POSITION</th>
+      <th>GR</th>
+      <th>DOWNSIDE GR</th>
+      <th>DAILY STDEV</th>
+      <th>DOWNSIDE STDEV</th>
+      <th>LATEST DAY (Z)</th>
+      <th>1-STDEV MOVE (USD)</th>
+      <th>30D</th>
+      <th>60D Z-PATH</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>NBIS</td><td>89.01</td><td>+0.725%</td><td>−4.528%</td>
+      <td>7.50%</td><td>4.10%</td><td>z −0.16</td><td>1,463</td><td>−0.24%</td><td class="blank">—</td>
+    </tr>
+    <tr>
+      <td>BTC</td><td>498.156016</td><td>−0.126%</td><td>−2.191%</td>
+      <td>2.84%</td><td>2.06%</td><td>z +2.16</td><td>483</td><td>+20.55%</td><td class="blank">—</td>
+    </tr>
+    <tr>
+      <td>MSFT</td><td>34.449544</td><td>+0.001%</td><td>−1.358%</td>
+      <td>2.04%</td><td>1.33%</td><td>z +0.21</td><td>339</td><td>+25.48%</td><td class="blank">—</td>
+    </tr>
+    <tr>
+      <td>AVGO</td><td>33.729031</td><td>+0.136%</td><td>−2.163%</td>
+      <td>3.04%</td><td>2.06%</td><td>z +0.35</td><td>378</td><td>−7.88%</td><td class="blank">—</td>
+    </tr>
+    <tr>
+      <td>QQQ</td><td>16.545245</td><td>+0.096%</td><td>−0.948%</td>
+      <td>1.23%</td><td>0.84%</td><td>z +0.21</td><td>146</td><td>−1.66%</td><td class="blank">—</td>
+    </tr>
+    <tr>
+      <td>MA</td><td>19.164231</td><td>−0.003%</td><td>−1.054%</td>
+      <td>1.41%</td><td>1.00%</td><td>z +0.84</td><td>156</td><td>+10.23%</td><td class="blank">—</td>
+    </tr>
+    <tr>
+      <td>SPY</td><td>13.575022</td><td>+0.072%</td><td>−0.605%</td>
+      <td>0.81%</td><td>0.56%</td><td>z +0.42</td><td>84</td><td>+1.43%</td><td class="blank">—</td>
+    </tr>
+    <tr>
+      <td>VOO</td><td>13.681061</td><td>+0.072%</td><td>−0.609%</td>
+      <td>0.81%</td><td>0.55%</td><td>z +0.39</td><td>78</td><td>+1.42%</td><td class="blank">—</td>
+    </tr>
+  </tbody>
+</table>
+<p class="caption">Source: allocation-engine risk desk · daily mark-to-market vol.</p>
+
+<h3>Calculation logic</h3>
+
+<p>Daily growth rate:</p>
+$$
+g_t \;=\; \frac{c_t}{c_{t-1}} - 1
+$$
+
+<dl class="metrics">
+
+  <dt>POSITION</dt>
+  <dd>
+    Signed share quantity $q$ from the open book.
+    <p class="note">Notional risk uses $|q|\,c_T$.</p>
+  </dd>
+
+  <dt>GR</dt>
+  <dd>
+    $$
+    \mathrm{GR} = \bar g = \tfrac{1}{n}\sum g_t
+    $$
+  </dd>
+
+  <dt>DOWNSIDE GR</dt>
+  <dd>
+    $$
+    \mathrm{Downside\,GR}
+    =
+    \begin{cases}
+      \frac{1}{|D|}\sum_{t \in D} g_t & D = \{t : g_t &lt; 0\} \neq \emptyset \\
+      0 & \text{otherwise}
+    \end{cases}
+    $$
+  </dd>
+
+  <dt>DAILY STDEV</dt>
+  <dd>
+    $$
+    \sigma_g
+    =
+    \sqrt{\tfrac{1}{n-1}\sum (g_t - \bar g)^2}
+    $$
+  </dd>
+
+  <dt>DOWNSIDE STDEV</dt>
+  <dd>
+    $$
+    \sigma_g^{-}
+    =
+    \sqrt{\tfrac{1}{n}\sum \bigl(\min(g_t,0)\bigr)^2}
+    $$
+  </dd>
+
+  <dt>LATEST DAY (Z)</dt>
+  <dd>
+    $$
+    z_T
+    =
+    \begin{cases}
+      \dfrac{g_T - \bar g}{\sigma_g} & \sigma_g &gt; 0 \\
+      0 & \sigma_g = 0
+    \end{cases}
+    $$
+  </dd>
+
+  <dt>1-STDEV MOVE</dt>
+  <dd>
+    $$
+    |q| \cdot c_T \cdot \sigma_g
+    $$
+  </dd>
+
+  <dt>30D</dt>
+  <dd>
+    $$
+    R_{W} = \frac{c_T}{c_{T-W}} - 1
+    $$
+  </dd>
+
+  <dt>60D Z-PATH</dt>
+  <dd>
+    $$
+    \bigl(z_t\bigr)_{t \in W},
+    \qquad
+    z_t = \frac{g_t - \bar g_W}{\sigma_{g,W}}
+    $$
+    <p class="note">
+      Sequence of $z$-scores over the window, not a scalar. Empty in the table
+      when the path is not exported for that row.
+    </p>
+  </dd>
+
+</dl>
+
+<hr>
+
+<h2>Write / read boundary</h2>
+<pre><span class="kw">class</span> <span class="type">Contract</span>:
+    engine_writes: path = "data/eps.json"
+    gym_reads: bool = True
+    shared_db: bool = False
+    runtime_deps: tuple = ()</pre>
+
+<p>
+  PR <a href="https://github.com/IamJasonBian/allocation-gym-2.0/pull/1">#1</a>
+  shipped the read-only EPS client (<code>jsondb</code>, <code>reader</code>, CLI)
+  and the self-contained local grid. The engine owns fetch / classify / export;
+  the gym never fetches.
+</p>
+
+</body>
+</html>
