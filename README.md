@@ -1,13 +1,14 @@
 # allocation-gym-2.0
 
+Implementation - https://iamjasonbian.github.io/chasethedice/papers/allocation-gym-whitepaper/
+
 Read-only client over the EPS dataset. Loads the JSON db that
 [`allocation-engine-2.0`](https://github.com/IamJasonBian/allocation-engine-2.0)
 writes, answers questions about it, and renders it.
 
 **This package never writes.** The engine owns the write path — it fetches EPS
 values and exports the dataset (`app/earnings_writer.py`, `app/earnings_store.py`).
-This one reads. No database handle is shared and neither repo imports the other;
-the contract is the JSON file.
+This one reads.
 
 ## Install
 
