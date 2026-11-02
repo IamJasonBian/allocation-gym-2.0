@@ -71,3 +71,11 @@ from the time.
 
 The grid inlines its data rather than fetching it, so it opens under `file://`.
 Rendering lives here rather than in the engine — a plot is a read.
+
+## Kalshi
+
+Research notes for pricing Kalshi LoL esports contracts (Worlds Bo5 knockouts).
+
+| Doc | Covers |
+|---|---|
+| [`docs/kalshi/draftrec-gaps-bo5-pricing.md`](docs/kalshi/draftrec-gaps-bo5-pricing.md) | Gaps in DraftRec (arXiv 2204.12750) for semis/finals pricing, three companion papers, critique, parameter mapping |
