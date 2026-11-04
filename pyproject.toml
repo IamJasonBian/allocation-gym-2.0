@@ -15,6 +15,7 @@ dev = ["pytest>=7.0", "ruff>=0.6.0"]
 
 [project.scripts]
 allocation-gym-2 = "allocation_gym2.__main__:main"
+allocation-pricing-service = "allocation_gym2.pricing_service:main"
 
 [tool.setuptools.packages.find]
 include = ["allocation_gym2*"]
